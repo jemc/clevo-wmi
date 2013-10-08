@@ -1,0 +1,345 @@
+The GNVS field in DSDT possibly groups registers for nVidia graphics stuff
+
+
+ACPI-WMI thing calls
+\_SB.PCI0.P0P2.PEGP._DSM calls
+\_SB.PCI0.GFX0._DSM (MUID, REVS, SFNC, ARGD)
+    (note: arg names come from SSDT table)
+    MUID - Buffer containing UUID
+    REVS - Integer containing revision ID (specific to UUID)
+    SFNC - Integer containing Function index (should start at 1)
+    ARGD - Package that contains function-specific arguments
+
+Terminology
+- KBC - Keyboard Controller
+- EC - Embedded Controller
+- GNVS - Global Non-Volatile Storage (guessed)
+- PEGP - PCI Express Graphics Port (guessed)
+
+\_SB.PCI0.LPCB.EC.RINF
+- \ - Root
+- _SB - System Bus
+- PCI0 - PCI Bus
+- LPCB - Low Pin Count bus, see http://www.intel.com/design/chipsets/industry/lpc.htm
+- EC - Embedded Controller (I/O slave, Bus Master)
+- RINF - ??? redundancy information signal ???
+
+Documentation on EC fields (also describing device names) with sample ASL:
+http://www.baldwin.cx/~phoenix/reference/docs/acpi_impguide.pdf
+page 27
+
+Some documentation on the GNVS fields:
+http://review.coreboot.org/gitweb?p=coreboot.git;a=blob_plain;f=src/southbridge/intel/sch/acpi/globalnvs.asl
+
+
+
+P80D - 32-bit in GNVS, debug port (IO 0x80) value (src: coreboot globalnvs.asl)
+P80H - 32-bit in PRT0 which is at address 0x80-0x83 in SystemIO
+
+Method PX8H accepts two arguments:
+- arg0: the byte in P80D to be modified, start counting at 0 from the right.
+        If the value is not 0x0-0x3 (inclusive), nothing is modified
+- arg1: the new 8-bit data to be inserted at position arg0
+After the argument processing above, P80D is stored into P80H
+
+
+
+\_SB.LID0._LID // line 6870
+if \_SB.PCI0.LPCB.EC.ECOK
+    return \_SB.PCI0.LPCB.EC.LIDS
+else
+    return 1
+According to the acpi spec page 343, non-zero = open lid, zero = closed lid
+\_SB.LID0._PSW // DSDT line 6887
+    if \_SB.PCI0.LPCB.EC.ECOK
+        Store Arg0 in \_SB.PCI0.LPCB.EC.LWKE
+_PSW 1 = enable device wake capabilities, 0 = disable
+
+
+It looks like \_SB.PCI0.LPCB.EC.ECOK checks whether the embedded controller is
+available. From my DSDT, ECOK is set to One when calling
+\_SB.PCI0.LPCB.EC._REG 0x3 0x1. According to the spec, _REG is called for
+indicating that an OperationRegion is ready (or not)
+
+
+\_SB.PCI0.GFX0._DSM // line 515
+
+My Clevo B7130 accepts two possible values for MUID.
+
+If there is no match, the below is returned:
+    0x02, 0x00, 0x00, 0x80
+
+If MUID matches:
+{ 0xD3, 0x73, 0xD8, 0x7E, 0xD0, 0xC2, 0x4F, 0x4E,
+  0xA8, 0x54, 0x0F, 0x13, 0x17, 0xB0, 0x1C, 0x2C }
+then One is always returned
+
+===================================================
+If MUID matches:
+{ 0xF8, 0xD8, 0x86, 0xA4, 0xDA, 0x0B, 0x1B, 0x47,
+  0xA7, 0x2B, 0x60, 0x42, 0xA6, 0xB5, 0xBE, 0xE0 }
+then
+
+If REVS does not match 0x0100, then the below is returned:
+{ 0x02, 0x00, 0x00, 0x80 }
+(observation: perhaps it means "invalid argument"?)
+
+
+My SSDT aliases SFNC (Arg2) as _T_0
+If SFNC matches Zero, then it returns:
+    { 0x01, 0x00, 0x03, 0x04 }
+
+If SFNC matches 0x11, the if-conditions are skipped and the above
+"If there is no match, ..." is applied, meaning that the below is returned:
+{ 0x02, 0x00, 0x00, 0x80 }
+
+If SFNC matches 0x10, then
+    ARGD (Arg3) is aliased as NVVK
+    If ARGD equals 0x564B, then it returns something based on the 32-bit
+    register \NVID. If the \NVID register value does not match one of the
+    comparisons, the buffer from "If there is no match, ..." is returned:
+    { 0x02, 0x00, 0x00, 0x80 }
+    Otherwise, a buffer of size 226 (0xE2) or 230 (0xE6) is returned which may
+    also be based on \_SB.PCI0.P0P2.SSID
+
+**possible power management stuff ahead**
+If SFNC matches 0x1A, then // line 596
+    If And(\OEMF, One), then // register OEMF is in field GNVS in SystemMemory
+    (I now consider ARGD[n] as the n-th element in buff ARGD (Arg3) with n>=0)
+        UPFG = ARGD[1]
+        OPCE = ARGD[3]
+        if And(UPFG, One) OPD3 = And(OPCE, One) // store right-most bit of OPD3
+                                                // in OPCE
+        TEMP = { 0x01, 0x00, 0x00, 0x09 }
+        if And(\OEMF, 0x10), then
+            if \_SB.PCI0.LPCB.EC.ECOK // whether the EC is available (ready)
+                if And(\_SB.PCI0.LPCB.EC.RINF, 0x02)// the device is on if 0x2
+                    // and 0x0 if off
+                    TEMP[0] = 0x19
+                else
+                    TEMP[0] = One
+        else
+            TEMP[3] = Zero
+        return TEMP
+    else
+        return { 0x00 } // note, buffer size is 4, so {0x00,0x00,0x00,x00}
+
+Only if OPD3 is non-zero, \_SB.PCI0.P0P2.PEGP._PS3 may shutdown the card
+
+Calls:
+**turning the nvidia card off**
+
+    \_SB.PCI0.P0P2.PEGP._DSM {0xF8,0xD8,0x86,0xA4,0xDA,0x0B,0x1B,0x47,0xA7,0x2B,0x60,0x42,0xA6,0xB5,0xBE,0xE0} 0x100 0x1A {1,0,0,3}
+    \_SB.PCI0.P0P2.PEGP._PS3
+
+**turning the nvidia card on**
+
+    \_SB.PCI0.P0P2.PEGP._PS0
+
+The _DSM function was also found on the Clevo W150HRM, but LLStarks reported
+that the driver did not recognize the device even after _PS0 has been called.
+
+===================================================
+
+When turning off (_PS3):
+Zero is written to \_SB.PCI0.LPCB.EC.FDAT
+0xBF is written to \_SB.PCI0.LPCB.EC.FCMD
+
+When turning on (_PS0):
+One  is written to \_SB.PCI0.LPCB.EC.FDAT
+0xBF is written to \_SB.PCI0.LPCB.EC.FCMD 
+
+This is observed for Clevo B7130 which has an ITE 8518 embedded controller
+(KBC-ITE IT8502E according to the Mainboard Overview of the B7130 Service
+Manual)
+It's also observed for the Clevo W150HRM (although it's called through SGOF
+(off) and SGON (on).
+
+===================================================
+
+Analysis against Asus UL30VT
+The Asus UL30VT has a _DSM method that turns devices on/off.
+
+The UUID is different too:
+0xA0,0xA0,0x95,0x9D,0x60,0x00,0x48,0x4D,0xB3,0x4D,0x7E,0x5F,0xEA,0x12,0x9F,0xD4
+
+The SFNC is different too: 0x03 instead of 0x1A
+
+The revision number (second argument, Arg1) is ignored.
+
+ARGD is read as a little-endian number and stored in Local0
+If it equals 1 (ARGD={0x1,0x0,0x0,0x0}, the device is turned on and One is
+returned.
+If it equals 2 (ARGD={0x2,0x0,0x0,0x0}, the device is turned off and Zero is
+returned.
+Otherwise, the status is returned (result of calling \_SB.PCI0.P0P1.VGA._STA)
+
+\_SB.PCI0.P0P1.VGA._STA
+If all bits in \_SB.PCI0.REG0 equals to 1, Zero is returned. Otherwise, 0x0F is
+returned. REG0 is a 32-bit field in HOSG which is a field in the PCI_Config
+space, starting at address Zero.
+
+The same function was found on Clevo W150HRM which expects the same arguments
+and returns the same values. 0x00 means that the device is off, 0x0F means that
+it's on.
+
+===================================================
+
+The Dell Vostro 3500 has the same _DSM layout as the Asus UL30VT (see above)
+and uses the same UUID and SFNC,
+The SSDT2.dsl file contains syntax errors on the P8XH function though which
+makes analysis a bit harder). Again, Arg3 is converted to an Integer (little
+endian of course, stored in Local0). In this case, the last two bits are
+significant (AND (Local0, 0x3)). Values for Local0:
+
+- 0 - calls \_SB.PCI0.P0P1.PEGP._STA
+- 1 - calls \_SB.PCI0.P0P1.PEGP._ON
+- 2 - calls \_SB.PCI0.P0P1.PEGP._OFF
+
+The 1-bit field PO36 is One if the device is disabled and Zero if enabled
+
+Buffer TMP2 contains four Zeros: {0x00, 0x00, 0x00, 0x00}. The first byte is
+aliased to STS2. If \_SB.PCI0.P0P1.PEGP.PO36 equals Zero, the right-most bit of
+STS2 is set to One (Or (STS2, One)).
+
+The return result of \_SB.PCI0.GFX0._DSM for Arg2 = 3 is buffer TMP2. More
+precisely, if the device is enabled, the return result is {0x1,0x0,0x0,0x0}. If
+the device is disabled, the result is {0x0,0x0,0x0,0x0}
+
+ACPI call for disable card:
+
+    \_SB.PCI0.P0P1.PEGP._DSM {0xA0,0xA0,0x95,0x9D,0x60,0x00,0x48,0x4D,0xB3,0x4D,0x7E,0x5F,0xEA,0x12,0x9F,0xD4} 0x102 0x3 {2,0,0,0}
+
+ACPI call for enable card:
+
+    \_SB.PCI0.P0P1.PEGP._DSM {0xA0,0xA0,0x95,0x9D,0x60,0x00,0x48,0x4D,0xB3,0x4D,0x7E,0x5F,0xEA,0x12,0x9F,0xD4} 0x102 0x3 {1,0,0,0}
+
+The above calls should theoretically work, but it didn't. vga_switcheroo works
+here (reported by Samsagax)
+
+===================================================
+
+Short analysis for Asus Aspire 5742G (not tested, theoretical analysis).
+The 1-bit field GP36 is Zero if disabled. _PS0 only disabled the card if GP36
+is Zero. _PS3 only disables the card if OMPR is 0x03. OMPR can be set using
+_DSM.
+
+Arg3 for _DSM:
+
+- if function is 0x1B, indices 0, 1, 2, 3 are used to construct Local0
+- if function is 0x10, Arg3 is passed to \_SB.PCI0.P0P2.VGA.GOBT
+- if function is 0x1A, the first two bits of index 3 is used for OPCE which
+  will be written to OMPR if the first bit of index Zero (name: FLCH) equals 1
+
+So, since OMPR should be 0x3 (binary 11) and OPCE is only written to OMPR if
+OPCE is not equal to OMPR and FLCH is 1, Arg3 should be: {0x1,0x0,0x0,0x3}
+
+Possible call for disabling the card:
+
+    \_SB.PCI0.P0P2.VGA._DSM {0xF8,0xD8,0x86,0xA4,0xDA,0x0B,0x1B,0x47,0xA7,0x2B,0x60,0x42,0xA6,0xB5,0xBE,0xE0} 0x100 0x1A {1,0,0,3}
+    \_SB.PCI0.P0P2.VGA._PS3
+Possible call for enabling the card:
+
+    \_SB.PCI0.P0P2.VGA._PS0
+
+Lenovo Thinkpad W520
+--------------------
+The MUID, REVS and SFNC arguments match the \_SB.PCI0.PEG.VID.NVOP function
+of a Lenovo Thinkpad W520 (called through \_SB.PCI0.PEG.VID._DSM). This was
+found in the DSDT. The 0x1A function looks similar to the Acer Aspire 5472G
+above, there is also a FLCH and OMPR. The return value of the card is always
+the same, if I've calculated it correctly: {0x91,0x0,0x0,0x1} (if it returns
+{0x81,0x0,0x0,0x1} then it's off, but the _STA function hardcodes 0x0F, so
+this will probably not happen). On calling the 0x1A DSM function, 0x02 is
+stored in HDAC. The behavior with OMPR is the same as the with the Aspire
+5472G above.
+Function 0x1B and 0x10 returns values only and do not perform an action on
+themselves.
+\_SB.PCI0.PEG.VID.ISOP (IS OPtimus?) seems to check whether the discrete video
+card is available (judging from the names VDSP, VIGD and VDSC). _PS0 and _PS3
+don't do anything if ISOP returns a zero value. _PS3 only works if OMPR equals
+0x3. After a successful call of _PS3, OMPR becomes 0x02 and DGOS becomes One.
+_PS0 only tries to enable the card if ISOP returns non-zero and DGOS is
+non-zero as well.
+
+Possible call for disabling the card:
+
+    \_SB.PCI0.PEG.VID._DSM {0xF8,0xD8,0x86,0xA4,0xDA,0x0B,0x1B,0x47,0xA7,0x2B,0x60,0x42,0xA6,0xB5,0xBE,0xE0} 0x100 0x1A {1,0,0,3}
+    \_SB.PCI0.PEG.VID._PS3
+Possible call for enabling the card:
+
+    \_SB.PCI0.PEG.VID._PS0
+
+===================================================
+
+The UUID
+0xF8,0xD8,0x86,0xA4,0xDA,0x0B,0x1B,0x47,0xA7,0x2B,0x60,0x42,0xA6,0xB5,0xBE,0xE0
+was found for:
+
+- Clevo B7130 (works, see above)
+- Asus Aspire 5742G (see above, same _DSM params as Clevo B7130)
+
+===================================================
+
+
+Windows Instrumentation: WMI and ACPI, sample ASL code
+http://msdn.microsoft.com/en-us/windows/hardware/gg463463#E6OAC
+
+Devices with _HID PNP0C14 (case-insensitive) are used for WMI.
+ACPI methods (xx is object ID):
+
+- _WDG - returns a buffer containing a mapping for data blocks, events and WMI
+         methods. See also http://lwn.net/Articles/391230/ and below
+- WQxx - returns a data block, optional arg0 for index (if multiple instances)
+- WSxx - Set the data block, arg0 is index, arg1 is data
+- WMxx - arg0 is instance index to be executed, arg1 method ID and arg2 a
+         buffer containing input for the method call
+- WExx - optional method that should be supported if keeping an event incurs
+         significant overhead. If arg0 is 0, disable event, otherwise enable
+- WCxx - optional method that should be supported if collecting data incurs
+         significant overhead. If arg0 is 0, disable data block collection, 0
+         otherwise
+- _WED - results are passed as part of WMI event information, this allows data
+         to be included with an event. Arg0 is notification code that caused
+         the notification to occur
+
+_WDG
+A multiple of 16 + 2 + 1 + 1 (=20) bytes:
+- first 14 bytes: GUID for the WMI method, split in groups of 4, 2, 2 and 6
+  bytes. Each group is read in reverse order, so {AA,BB,CC,DD} is read as
+  DDCCBBAA.
+- 15: notification value (used for ACPI Notify)
+- 16: Reserved
+- 17-18: Object ID. This is appended to the string "WM" to get the ACPI method
+         example: 0x42 0x42 are ASCII values for BB, so the method becomes WMBB
+- 19: Instance count (??)
+- 20: Flags (taken from iksaif's wmidump.c and the msdn link above):
+    0x1: ACPI_WMI_EXPENSIVE - run when the first data consumer is interested in
+         collecting the data block and run when the last data consumer is not
+         interested anymore
+    0x2: ACPI_WMI_METHOD - is a method, not a data block
+    0x4: ACPI_WMI_STRING - is a Unicode string
+    0x8: ACPI_WMI_EVENT - is an event, not a data block or method
+
+
+WMMX
+This was found on both a Clevo B7130 and W150HRM
+- arg0: ignored
+- arg1: if equals 0x1C, return result of _DSM method, otherwise return 0
+- arg2: FUNC + MUID + REVI + SFNC + ARGD (= 8 DWORDs)
+    - FUNC: 4 bytes, interpreted as a function number for WMI. 0x4D53445F is
+      the NVIDIA _DSM call. 
+    - MUID: 16 BYTES (= 128 bits), the remaining values in arg2 are passed to
+      this _DSM method.
+    - REVID: 4 bytes
+    - SFNC: 4 bytes
+    - ARGD: 4 bytes (0x20 / 32 bits / DWORD). Also known as XRG0 and YARG.
+
+This method was found on many machines and seems the only way to call the _DSM
+method on Lenovo Y570. Most machines require Arg2 for FUNC == 0x4D53445F have
+a size of at least 0x1C bytes (7 DWORDs). Some allow 6 DWORDs too which means
+that it's not verified that SFNC exist. The ACPI spec requires the bits to be
+exist in the source (Arg2) so you should always pass 8 DWORDs.
+
+The WMI GUID for this is F6CB5C3C-9CAE-4EBD-B577-931EA32A2CC0
+
