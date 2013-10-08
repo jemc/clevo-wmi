@@ -1,0 +1,1 @@
+cmd_/home/ash/acpi/clevo-wmi/src/clevo-wmi.ko := ld -r -m elf_x86_64 -T /usr/src/kernels/3.10.11-200.fc19.x86_64/scripts/module-common.lds --build-id  -o /home/ash/acpi/clevo-wmi/src/clevo-wmi.ko /home/ash/acpi/clevo-wmi/src/clevo-wmi.o /home/ash/acpi/clevo-wmi/src/clevo-wmi.mod.o
