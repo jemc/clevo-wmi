@@ -1,0 +1,8 @@
+/*
+Hexxer will take an input like the one below, accepting comments, such as this one.
+It produces the binary representation of the hex codes. Intended for WQxx DSDT block
+processing - copy the block, which will have a format like the block below, from a
+decompiled DSDT.
+*/
+                /* 0000 */    0x46, 0x4F, 0x4D, 0x42, 0x01, 0x00, 0x00, 0x00, 
+                /* 0008 */    0x6C, 0x03, 0x00, 0x00, 0xC8, 0x0B, 0x00, 0x00, 
