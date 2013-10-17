@@ -9,8 +9,7 @@
 %%
 "/*"			{ BEGIN(C_COMMENT); }
 <C_COMMENT>"*/"		{ BEGIN(INITIAL); }
-<C_COMMENT>.		{}
-<C_COMMENT>\n		{}
+<C_COMMENT>.|\n		{}
 <C_COMMENT><<EOF>>	{ fprintf(stderr, "Error: Unterminated comment\n"); yyterminate(); }
 
 [ \t\n,"0x"]		;
