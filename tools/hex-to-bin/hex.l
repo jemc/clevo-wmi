@@ -16,7 +16,7 @@
 "0x"		;
 ,		;
 .		{ fprintf(stderr, "Warning: Unexpected character: %s\n", yytext); };
-[0-9a-fA-F][0-9a-fA-F]  { fprintf(stdout, "%c", (char)strtol(yytext, NULL, 16)); }
+[0-9a-fA-F]{2}  { fprintf(stdout, "%c", (char)strtol(yytext, NULL, 16)); }
 %%
 int main() {
 	//lex through the input:
