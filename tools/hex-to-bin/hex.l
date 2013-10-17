@@ -12,9 +12,7 @@
 <C_COMMENT>\n      {}
 <C_COMMENT><<EOF>> { fprintf(stderr, "Error: Unterminated comment\n"); yyterminate(); }
 
-[ \t\n]         ;
-"0x"		;
-,		;
+[ \t\n,"0x"]    ;
 .		{ fprintf(stderr, "Warning: Unexpected character: %s\n", yytext); };
 [0-9a-fA-F]{2}  { fprintf(stdout, "%c", (char)strtol(yytext, NULL, 16)); }
 %%
