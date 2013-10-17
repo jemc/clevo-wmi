@@ -16,8 +16,14 @@
 .		{ fprintf(stderr, "Warning: Unexpected character: %s\n", yytext); };
 [0-9a-fA-F]{2}  { fprintf(stdout, "%c", (char)strtol(yytext, NULL, 16)); }
 %%
-int main() {
-	//lex through the input:
+int main(int argc, char**argv)
+{
+	++argv, --argc;	/* skip over program name */
+	if ( argc > 0 )
+		yyin = fopen( argv[0], "r" );
+	else
+		yyin = stdin;
+
 	yylex();
 	return 0;
 }
