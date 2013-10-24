@@ -7,7 +7,6 @@
 uint8_t *processingPTR0;
 uint32_t state0, state1, origBytesToProcess;
 
-signed int beginDecompress(uint8_t *, uint8_t **);
 int decompressGivenPOutAndOutFileSize(uint8_t *, uint32_t);
 int fun0();
 int fun1(unsigned int);
