@@ -1,0 +1,7 @@
+Some tools to get WQ records out of dsdt.
+
+Use iasl to get a .dsl file.
+
+Then do (where WQBB is replaced by your WQ record needed):
+
+wmixtract.py WQBB dsdt.dsl | hexxer | mofdecompress > wqbb.mof
