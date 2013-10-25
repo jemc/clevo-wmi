@@ -5,3 +5,7 @@ Use iasl to get a .dsl file.
 Then do (where WQBB is replaced by your WQ record needed):
 
 wmixtract.py WQBB dsdt.dsl | hexxer | mofdecompress > wqbb.mof
+
+Clevo mof isn't available in the bios, but is available from within their hotkey drivers. Use ResourceExtract to extract it from clevomof.dll, then:
+
+mofdecompress clevo-mof.bmf > clevo-mof.mof
